@@ -60,6 +60,8 @@ class Photo:
     def removeTag(self, tag):
         if tag in self.tags:  # if given tag does not exist, do nothing
             self.tags.remove(tag)
+            return True
+        return False
 
     def setLocation(self, long, latitude):
         self.location = (long, latitude)

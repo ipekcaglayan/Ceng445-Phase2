@@ -1,18 +1,27 @@
 from SharedPhotoLibrary import *
+from threading import Lock
 
 
 class User:
     counter = 0
+    users_dict = {}  # {user_id: User obj}
 
-    def __init__(self, name):
-        self.username = name
+    def __init__(self, username, password, db):
+        self.username = username
+        self.password = password
         self.id = User.counter
+        db.insert("Users", ('user_id', 'username', 'password'), self.id, username, password)
         User.counter += 1
         self.collections = []
         self.views = set()
         self.photos = {}
         self.sharedCollectionsWithMe = set()
         self.sharedViewsWithMe = set()
+        self.db = db
+        print("id type: ", type(self.id))
+        User.users_dict[self.id] = self
+        print(User.users_dict)
+
 
     def __str__(self):
         return f"User({self.id},\n{self.username},\ncollections of user: {self.collections},\n" \
@@ -25,34 +34,46 @@ class User:
     def uploadPhoto(self, path):
         new_photo = Photo(path)
         self.photos[new_photo.id] = (new_photo)
+        self.db.insert("Photos", ('ph_id', 'tags', 'location', 'datetime', 'user_id'), new_photo.id, "", "", "", self.id)
+
+        return new_photo.id
+
 
     def addTagToPhoto(self, id, tag):
         try:
             self.photos[id].addTag(tag)
+            return True
         except KeyError:
             print("Photo with given id does not exist")
 
     def removeTagFromPhoto(self, id, tag):
         try:
-            self.photos[id].removeTag(tag)
+            success = self.photos[id].removeTag(tag)
+            if success:
+                return f"Tag: {tag} removed from Photo(id={id})"
+            return f"Photo(id={id} doesn't include given Tag: {tag})"
         except KeyError:
             print("Photo with given id does not exist")
 
     def setLocationOfPhoto(self, id, long, latt):
         try:
             self.photos[id].setLocation(long, latt)
+            return f"Location of Photo(id={id} is set to longitude={long} and latitude={latt})"
         except KeyError:
             print("Photo with given id does not exist")
 
     def removeLocationFromPhoto(self, id):
         try:
             self.photos[id].removeLocation()
+            return f"Location of Photo(id={id}) is removed."
+
         except KeyError:
             print("Photo with given id does not exist")
 
     def setDatetimeOfPhoto(self, id, datetime):
         try:
             self.photos[id].setDateTime(datetime)
+            return True
         except KeyError:
             print("Photo with given id does not exist")
 
