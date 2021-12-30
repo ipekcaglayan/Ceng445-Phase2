@@ -6,21 +6,22 @@ class User:
     counter = 0
     users_dict = {}  # {user_id: User obj}
 
-    def __init__(self, username, password, db):
+    def __init__(self, username, password):
         self.username = username
         self.password = password
         self.id = User.counter
-        db.insert("Users", ('user_id', 'username', 'password'), self.id, username, password)
         User.counter += 1
         self.collections = []
+        self.collections_dict = {}
         self.views = set()
         self.photos = {}
         self.sharedCollectionsWithMe = set()
         self.sharedViewsWithMe = set()
-        self.db = db
         print("id type: ", type(self.id))
         User.users_dict[self.id] = self
         print(User.users_dict)
+
+
 
 
     def __str__(self):
@@ -31,12 +32,14 @@ class User:
 
     __repr__ = __str__
 
-    def uploadPhoto(self, path):
-        new_photo = Photo(path)
+    def uploadPhoto(self, path, encoded_img):
+        new_photo = Photo(path, encoded_img)
         self.photos[new_photo.id] = (new_photo)
-        self.db.insert("Photos", ('ph_id', 'tags', 'location', 'datetime', 'user_id'), new_photo.id, "", "", "", self.id)
+        # self.db.insert("Photos", ('ph_id', 'tags', 'location', 'datetime', 'user_id'), new_photo.id, "", "", "", self.id)
 
-        return new_photo.id
+        photo_info = [new_photo.id, "-".join(list(new_photo.tags)), new_photo.location, new_photo.datetime,
+                      encoded_img, self.id]
+        return photo_info
 
 
     def addTagToPhoto(self, id, tag):
@@ -92,12 +95,19 @@ class User:
     def createCollection(self, name):
         created_collection = Collection(name, self)
         self.collections.append(created_collection)
-        return created_collection
+        self.collections_dict[created_collection.id] = created_collection
+        # self.db.insert("Collections", ('col_id', 'col_name', 'owner_id'), created_collection.id, name, self.id)
+
+        return created_collection.id
 
     def createView(self, name):
         # This function creates a view with given name and adds it to the users views.
         my_view = View(name)
         self.views.add(my_view)
+        # self.db.insert("Views", ('view_id', 'view_name', 'location_filter', 'time_filter_start', 'time_filter_end',
+        #                          'col_id', 'owner_id'), my_view.id, name, "", "", "", -1, self.id)
+
+        return my_view.id
 
     def shareCollection(self, shared_collection, shared_with):
         if self == shared_collection.owner:

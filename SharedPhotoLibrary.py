@@ -1,6 +1,7 @@
 import datetime
 from exif import Image
 import PIL.Image
+import base64
 
 
 class Photo:
@@ -9,7 +10,7 @@ class Photo:
 
     counter = 0
 
-    def __init__(self, path):
+    def __init__(self, path, encoded_image):
 
         self.tags = set()
         self.id = Photo.counter
@@ -23,6 +24,8 @@ class Photo:
         # open photo in binary format to read metadata
         with open(path, 'rb') as img_file:
             img = Image(img_file)
+
+        self.encoded_image = encoded_image
 
         self.location = "Not specified."
         # get gps info of the photo from metadata. latitude and longtitude is assigned None if gps info does not exist
@@ -38,14 +41,12 @@ class Photo:
         # if datetime info exists, set datetime attribute
 
         if date:
-            dates=date.split(" ")
-          
-            yymmdd=[int(x) for x in dates[0].split(":")]
-            saat=[int(x) for x in dates[1].split(":")]
-           
+            dates = date.split(" ")
+
+            yymmdd = [int(x) for x in dates[0].split(":")]
+            saat = [int(x) for x in dates[1].split(":")]
 
             self.datetime = datetime.datetime(*(yymmdd+saat))
-           
 
         photo.close()
 
@@ -79,6 +80,7 @@ class Photo:
 class Collection:
 
     counter = 0
+    collections_dict = {}
 
     def __init__(self, name, user):
         self.id = Collection.counter
@@ -87,6 +89,7 @@ class Collection:
         self.photos = {}  # photos are kept in dictionary object for more efficient fetch operation
         self.views = set()
         self.owner = user
+        Collection.collections_dict[self.id] = self
 
     def __str__(self):
         return f'Collection({self.name},{self.photos}, views: {self.views})'
@@ -252,7 +255,7 @@ class View:
 
 
 
-my=Photo("./canon.jpg")
+# my=Photo("./canon.jpg")
 
 
 
