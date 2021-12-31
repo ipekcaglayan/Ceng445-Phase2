@@ -148,14 +148,16 @@ class User:
 
     @isCollectionSharedWithUser
     def addPhotoToCollection(self, collection, photo):
-        collection_photos = collection.addPhoto(photo)
-        return True, f'{self.username} added Photo(id{photo.id}) to Collection({collection.name})', collection_photos
+        collection_photos, msg, view_changes = collection.addPhoto(photo)
+        msg = f'{self.username} added Photo(id{photo.id}) to Collection({collection.name})\n'+msg
+        return True, msg, collection_photos, view_changes
 
 
     @isCollectionSharedWithUser
     def removePhotoFromCollection(self, collection, photo):
-        collection_photos = collection.removePhoto(photo)
-        return True, f'{self.username} removed Photo(id{photo.id}) from Collection({collection.name})', collection_photos
+        collection_photos, msg, view_changes = collection.removePhoto(photo)
+        msg = f'{self.username} removed Photo(id{photo.id}) from Collection({collection.name})\n'+msg
+        return True, msg, collection_photos, view_changes
 
 
     @isCollectionSharedWithUser

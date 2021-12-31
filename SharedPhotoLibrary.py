@@ -105,10 +105,17 @@ class Collection:
         self.collection_photos.add(photo.id)
 
         # for all views attached to this collection, update the views since they might add the newly added photo
+        msg = f""
+        view_changes = []
         for v in self.views:
-            v.update()
+            old_photos_ids = v.filtered_photos_ids
+            new_photos_ids = v.update()
+            if old_photos_ids != new_photos_ids:
+                view_changes.append((new_photos_ids, v.id))
+                msg += f"Photos ids list is changed from {old_photos_ids} to {new_photos_ids} for View(id={v.id}) " \
+                      f"which contains filtering for Collection({self.name})\n"
 
-        return self.collection_photos
+        return self.collection_photos, msg, view_changes
 
     def removePhoto(self, photo):
         if photo.id in self.photos:  # if photo in collection, remove
@@ -116,10 +123,17 @@ class Collection:
             self.collection_photos.remove(photo.id)
 
         # for all views attached to this collection, update the views since they might contain the removed photo
+        msg = f""
+        view_changes = []
         for v in self.views:
-            v.update()
+            old_photos_ids = v.filtered_photos_ids
+            new_photos_ids = v.update()
+            if old_photos_ids != new_photos_ids:
+                view_changes.append((new_photos_ids, v.id))
+                msg += f"Photos ids list is changed from {old_photos_ids} to {new_photos_ids} for View(id={v.id}) " \
+                      f"which contains filtering for Collection({self.name})\n"
 
-        return self.collection_photos
+        return self.collection_photos, msg, view_changes
 
     def fetchPhoto(self, ph_id):
         photo = self.photos[ph_id]
@@ -174,14 +188,15 @@ class View:
 
     def filterByView(self):
         self.filtered_photos_ids = set()
-
+        # print(self.location_rect, self.tag_list, self.conjunctive)
+        # print(self.collection.photos)
         if self.collection:
             for key, ph in self.collection.photos.items():
                 flag = 1
-                if self.time_interval and ph.datetime and ph.datetime != "Not specified.":
+                if self.time_interval and ph.datetime and ph.datetime is not None:
                     if (ph.datetime < self.time_interval[0]) or (ph.datetime > self.time_interval[1]):
                         flag = 0
-                if self.location_rect and ph.location!="Not specified.":
+                if self.location_rect and ph.location is not None:
                   
                     if ((self.location_rect[0] > ph.location[0]) or (self.location_rect[1] < ph.location[0]) or
                             (self.location_rect[2] > ph.location[1]) or (self.location_rect[3] < ph.location[1])):

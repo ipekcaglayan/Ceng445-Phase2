@@ -99,8 +99,11 @@ class Server:
                     u = User.users_dict[u_id]
                     u.sharedCollectionsWithMe.add(col)
 
+            print(col_tuple[4])
             if col_tuple[4]:  # collection_photos
                 col.collection_photos = eval(col_tuple[4])
+                for ph_id in col.collection_photos:
+                    col.photos[ph_id] = Photo.photos_dict[ph_id]
 
             collections_dict[col.id] = col
 
@@ -111,7 +114,7 @@ class Server:
 
         views_list = list(self.db.curs.execute(f'SELECT view_id, view_name, location_filter, time_filter_start, '
                                                f'time_filter_end, col_id, owner_id, login_required, '
-                                               f'filtered_photos_ids, tag_list, shared_users from Views'))
+                                               f'filtered_photos_ids, tag_list, shared_users, conjunctive from Views'))
         views_dict = {}
         view_counter = 0
 
@@ -127,18 +130,30 @@ class Server:
             filtered_photos_ids = eval(view_tuple[8])
             tag_list = eval(view_tuple[9])
             shared_users = eval(view_tuple[10])
+            conj = eval(view_tuple[11])
 
             view = View(view_name)
             view.id = view_id
             view.login_required = login_required
             view.filtered_photos_ids = filtered_photos_ids
             view.tag_list = tag_list
+            view.conjunctive = conj
 
             if view.id > view_counter:
                 view_counter = view.id
 
             if time_filter_start:
-                view.time_interval = (time_filter_start, time_filter_end)
+                dates_start = time_filter_start.split(" ")
+                yymmdd_start = [int(x) for x in dates_start[0].split("-")]
+                saat_start = [int(x) for x in dates_start[1].split(":")]
+                start_datetime = datetime.datetime(*(yymmdd_start + saat_start))
+
+                dates_end = time_filter_end.split(" ")
+                yymmdd_end = [int(x) for x in dates_end[0].split("-")]
+                saat_end = [int(x) for x in dates_end[1].split(":")]
+                end_datetime = datetime.datetime(*(yymmdd_end + saat_end))
+
+                view.time_interval = (start_datetime, end_datetime)
 
             if location_filter:
                 view.location_rect = eval(location_filter)
@@ -238,9 +253,9 @@ class Server:
             view_id = user.createView(kwargs['view_name'])
             self.db.insert("Views", ('view_id', 'view_name', 'location_filter', 'time_filter_start',
                                      'time_filter_end', 'col_id', 'owner_id', 'login_required', 'filtered_photos_ids', 'tag_list',
-                                     'shared_users'),
+                                     'shared_users', 'conjunctive'),
                            *[view_id, kwargs['view_name'], None, None, None, None, user_id, True, str(set()),
-                             str(set()), str(set())])
+                             str(set()), str(set()), False])
             return str(view_id)
 
         elif request == 10:  # Share Collection
@@ -262,17 +277,22 @@ class Server:
         elif request == 12:  # Add photo to collection
             col = Collection.collections_dict[int(kwargs['col_id'])]
             photo = Photo.photos_dict[int(kwargs['ph_id'])]
-            success, msg, collection_photos = user.addPhotoToCollection(col, photo)
+            success, msg, collection_photos, view_changes = user.addPhotoToCollection(col, photo)
             if success:
                 self.db.update("Collections", "collection_photos", "col_id", *[str(collection_photos), int(kwargs['col_id'])])
+                for v_tuple in view_changes:
+                    self.db.update("Views", "filtered_photos_ids", "view_id", *[str(v_tuple[0]), int(v_tuple[1])])
+
             return msg
 
         elif request == 13:  # Remove photo from collection
             col = Collection.collections_dict[int(kwargs['col_id'])]
             photo = Photo.photos_dict[int(kwargs['ph_id'])]
-            success, msg, collection_photos = user.removePhotoFromCollection(col, photo)
+            success, msg, collection_photos, view_changes = user.removePhotoFromCollection(col, photo)
             if success:
                 self.db.update("Collections", "collection_photos", "col_id", *[str(collection_photos), int(kwargs['col_id'])])
+                for v_tuple in view_changes:
+                    self.db.update("Views", "filtered_photos_ids", "view_id", *[str(v_tuple[0]), int(v_tuple[1])])
             return msg
 
         elif request == 14:  # Set tag filter to view
@@ -283,6 +303,7 @@ class Server:
             if success:
                 self.db.update("Views", "filtered_photos_ids", "view_id", *[str(new_photos_ids), int(kwargs['view_id'])])
                 self.db.update("Views", "tag_list", "view_id", *[str(tag_list), int(kwargs['view_id'])])
+                self.db.update("Views", "conjunctive", "view_id", *[conj, int(kwargs['view_id'])])
             return msg
 
         elif request == 15:  # Set loc rec to view
@@ -393,7 +414,6 @@ class Server:
 
             return json.dumps(response)
 
-
     def request_handler(self, request_handler_socket):
         client_user_id = -1
         received_msg = request_handler_socket.recv(1024)
@@ -414,34 +434,37 @@ class Server:
             request['user_id'] = client_user_id
 
             if request_type == '0':  # CREATE_USER
-                user = User(request['username'], request['password'])
-                user_id = str(user.id)
-                self.db.insert("Users", ('user_id', 'username', 'password'), user.id, user.username, user.password)
+                with Server.mutex:
+                    user = User(request['username'], request['password'])
+                    user_id = str(user.id)
+                    self.db.insert("Users", ('user_id', 'username', 'password'), user.id, user.username, user.password)
 
-                request_handler_socket.send(str.encode(user_id))
+                    request_handler_socket.send(str.encode(user_id))
 
             elif request_type == '1':  # LOGIN
-                username = request['username']
-                password = request['password']
-                user_list = list(self.db.curs.execute(
-                    f'SELECT user_id, password FROM Users where username="{username}"'))
+                with Server.mutex:
+                    username = request['username']
+                    password = request['password']
+                    user_list = list(self.db.curs.execute(
+                        f'SELECT user_id, password FROM Users where username="{username}"'))
 
-                user_id = str(-1)  # assume credentials are wrong before checking
+                    user_id = str(-1)  # assume credentials are wrong before checking
 
-                if len(user_list) > 0:  # there exists user with the given username
-                    correct_password = user_list[0][1]
-                    if correct_password == password:
-                        user_id = str(user_list[0][0])  # if given password matches with the correct password
-                        client_user_id = user_id
-                        # client will be informed with the correct user_id
-                        # if not user_id will be sent as -1 which means password or username is incorrect.
+                    if len(user_list) > 0:  # there exists user with the given username
+                        correct_password = user_list[0][1]
+                        if correct_password == password:
+                            user_id = str(user_list[0][0])  # if given password matches with the correct password
+                            client_user_id = user_id
+                            # client will be informed with the correct user_id
+                            # if not user_id will be sent as -1 which means password or username is incorrect.
 
-                request_handler_socket.send(str.encode(user_id))
+                    request_handler_socket.send(str.encode(user_id))
 
             else:
-                req_type = int(request_type)
-                message = self.user_does_request(req_type, **request)
-                request_handler_socket.send(str.encode(message))
+                with Server.mutex:
+                    req_type = int(request_type)
+                    message = self.user_does_request(req_type, **request)
+                    request_handler_socket.send(str.encode(message))
 
             received_msg = request_handler_socket.recv(1024)
 

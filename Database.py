@@ -12,7 +12,7 @@ class Database:
                           "collection_photos )")
         self.curs.execute("create table if not exists Views(view_id, view_name, location_filter, "
                           "time_filter_start, time_filter_end, col_id, owner_id, login_required, filtered_photos_ids, "
-                          "tag_list, shared_users )")
+                          "tag_list, shared_users, conjunctive )")
 
     def insert(self, table_name, field_names, *data):
         query = f'INSERT INTO {table_name} {field_names} VALUES ( {",".join(["?"] * len(data))})'
