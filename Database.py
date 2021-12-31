@@ -6,12 +6,13 @@ class Database:
         self.conn = conn
         self.curs = curs
         self.curs.execute("create table if not exists Users(user_id, username, password)")
-        self.curs.execute("create table if not exists Photos(ph_id, tags, location, datetime, encoded_img, user_id)")
-        self.curs.execute("create table if not exists Collections(col_id, col_name, owner_id)")
-        self.curs.execute("create table if not exists CollectionPhotos(col_id, ph_id)")
+        self.curs.execute("create table if not exists Photos(ph_id, tags, location, datetime, path, encoded_img, "
+                          "user_id)")
+        self.curs.execute("create table if not exists Collections(col_id, col_name, owner_id, shared_users, "
+                          "collection_photos )")
         self.curs.execute("create table if not exists Views(view_id, view_name, location_filter, "
-                          "time_filter_start, time_filter_end, col_id, owner_id)")
-        self.curs.execute("create table if not exists ViewTags(view_id, tag)")
+                          "time_filter_start, time_filter_end, col_id, owner_id, login_required, filtered_photos_ids, "
+                          "tag_list, shared_users )")
 
     def insert(self, table_name, field_names, *data):
         query = f'INSERT INTO {table_name} {field_names} VALUES ( {",".join(["?"] * len(data))})'

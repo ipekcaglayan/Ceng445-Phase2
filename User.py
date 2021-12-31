@@ -21,9 +21,6 @@ class User:
         User.users_dict[self.id] = self
         print(User.users_dict)
 
-
-
-
     def __str__(self):
         return f"User({self.id},\n{self.username},\ncollections of user: {self.collections},\n" \
                f"views of user: {self.views},\nshared collections with user: {self.sharedCollectionsWithMe},\n" \
@@ -35,50 +32,55 @@ class User:
     def uploadPhoto(self, path, encoded_img):
         new_photo = Photo(path, encoded_img)
         self.photos[new_photo.id] = (new_photo)
-        # self.db.insert("Photos", ('ph_id', 'tags', 'location', 'datetime', 'user_id'), new_photo.id, "", "", "", self.id)
 
-        photo_info = [new_photo.id, "-".join(list(new_photo.tags)), new_photo.location, new_photo.datetime,
+        tags = None
+        if new_photo.tags:
+            tags = str(tags)
+
+        photo_info = [new_photo.id, tags, str(new_photo.location), new_photo.datetime, path,
                       encoded_img, self.id]
         return photo_info
-
 
     def addTagToPhoto(self, id, tag):
         try:
             self.photos[id].addTag(tag)
-            return True
+            return True, self.photos[id].tags
         except KeyError:
-            print("Photo with given id does not exist")
+            return False, "Photo with given id does not exist"
 
     def removeTagFromPhoto(self, id, tag):
         try:
             success = self.photos[id].removeTag(tag)
             if success:
-                return f"Tag: {tag} removed from Photo(id={id})"
-            return f"Photo(id={id} doesn't include given Tag: {tag})"
+                if not self.photos[id].tags:
+                    return f"Tag: {tag} removed from Photo(id={id})", True, None
+                return f"Tag: {tag} removed from Photo(id={id})",  True, self.photos[id].tags
+            return f"Photo(id={id} doesn't include given Tag: {tag})", False, None
         except KeyError:
-            print("Photo with given id does not exist")
+            return "Photo with given id does not exist"
 
     def setLocationOfPhoto(self, id, long, latt):
         try:
             self.photos[id].setLocation(long, latt)
-            return f"Location of Photo(id={id} is set to longitude={long} and latitude={latt})"
+            return True, f"Location of Photo(id={id} is set to longitude={long} and latitude={latt})"
+
         except KeyError:
-            print("Photo with given id does not exist")
+            return False, "Photo with given id does not exist"
 
     def removeLocationFromPhoto(self, id):
         try:
             self.photos[id].removeLocation()
-            return f"Location of Photo(id={id}) is removed."
+            return True, f"Location of Photo(id={id}) is removed."
 
         except KeyError:
-            print("Photo with given id does not exist")
+            return False, "Photo with given id does not exist"
 
     def setDatetimeOfPhoto(self, id, datetime):
         try:
             self.photos[id].setDateTime(datetime)
-            return True
+            return True, ""
         except KeyError:
-            print("Photo with given id does not exist")
+            return False, "Photo with given id does not exist"
 
     def isCollectionSharedWithUser(fnc):
         def inner(*args):
@@ -87,8 +89,7 @@ class User:
             if user == collection.owner or collection in user.sharedCollectionsWithMe:
                 return fnc(*args)
             else:
-                print(f"{collection.name} is not shared with {user.username}. {user.username} cannot inspect and "
-                      f"update the collection {collection.name}.")
+                return False, f"{collection.name} is not shared with {user.username}. {user.username} cannot inspect and update the collection {collection.name}.", None
 
         return inner
 
@@ -103,6 +104,7 @@ class User:
     def createView(self, name):
         # This function creates a view with given name and adds it to the users views.
         my_view = View(name)
+        my_view.owner = self
         self.views.add(my_view)
         # self.db.insert("Views", ('view_id', 'view_name', 'location_filter', 'time_filter_start', 'time_filter_end',
         #                          'col_id', 'owner_id'), my_view.id, name, "", "", "", -1, self.id)
@@ -111,30 +113,50 @@ class User:
 
     def shareCollection(self, shared_collection, shared_with):
         if self == shared_collection.owner:
-            shared_collection.share(shared_with)
-            print(f"{self.username} shared {shared_collection.name} with {shared_with.username}")
+            shared_users = shared_collection.share(shared_with)
+            print(shared_users, "shared users")
+            return True, f"{self.username} shared {shared_collection.name} with {shared_with.username}", shared_users
         else:
-            print(f"You don't have access to share {shared_collection.name}")
-            print(f"{self.username} couldn't share {shared_collection.name} with {shared_with.username}. "
-                  f"Because {shared_collection.name} can be shared only by {shared_collection.owner.username} ")
+            return False, f"You don't have access to share {shared_collection.name}", None
+            # print(f"{self.username} couldn't share {shared_collection.name} with {shared_with.username}. "
+            #       f"Because {shared_collection.name} can be shared only by {shared_collection.owner.username} ")
 
     def unshareCollection(self, unshared_collection, unshared_with):
         if self == unshared_collection.owner:
-            unshared_collection.unshare(unshared_with)
-            print(f"{self.username} unshared {unshared_collection.name} with {unshared_with.username}")
+            shared_users = unshared_collection.unshare(unshared_with)
+            return True, f"{self.username} unshared {unshared_collection.name} with {unshared_with.username}", shared_users
         else:
-            print(f"You don't have access to unshare {unshared_collection.name}")
-            print(f"{self.username} couldn't share {unshared_collection.name} with {unshared_with.username}. "
-                  f"Because {unshared_collection.name} can be shared only by {unshared_collection.owner.username} ")
+            return False, f"You don't have access to unshare {unshared_collection.name}", None
+            # print(f"{self.username} couldn't share {unshared_collection.name} with {unshared_with.username}. "
+            #       f"Because {unshared_collection.name} can be shared only by {unshared_collection.owner.username} ")
+
+    def shareView(self, shared_view, shared_with):
+        if shared_view in self.views:
+            login_required, shared_users = shared_view.share(shared_with)
+            return True, f"{self.username} shared {shared_view.name} with {shared_with.username}", login_required, shared_users
+        else:
+            return False, f"You don't have access to share {shared_view.name}", None, None
+
+    def unshareView(self, unshared_view, unshared_with):
+        if unshared_view in self.views:
+            shared_users = unshared_view.unshare(unshared_with)
+            return True, f"{self.username} shared {unshared_view.name} with {unshared_with.username}", shared_users
+        else:
+            return False, f"You don't have access to share {unshared_view.name}", None
+
+
 
     @isCollectionSharedWithUser
     def addPhotoToCollection(self, collection, photo):
-        collection.addPhoto(photo)
+        collection_photos = collection.addPhoto(photo)
+        return True, f'{self.username} added Photo(id{photo.id}) to Collection({collection.name})', collection_photos
 
 
     @isCollectionSharedWithUser
     def removePhotoFromCollection(self, collection, photo):
-        collection.removePhoto(photo)
+        collection_photos = collection.removePhoto(photo)
+        return True, f'{self.username} removed Photo(id{photo.id}) from Collection({collection.name})', collection_photos
+
 
     @isCollectionSharedWithUser
     def fetchPhotoFromCollection(self, collection, ph_id):
@@ -142,7 +164,14 @@ class User:
 
     @isCollectionSharedWithUser
     def addViewToCollection(self, collection, view):
-        collection.addView(view)
+        if view in self.views or view in self.sharedViewsWithMe:
+            filtered_photos_ids = collection.addView(view)
+            msg = f'View({view.name}) is added to Collection({collection.name}).\n' \
+                  f'Photos ids in view is {filtered_photos_ids}'
+            return True, msg, filtered_photos_ids
+        else:
+            msg = f"View({view.name}) is not shared with you. You don't have access to attach it to a collection."
+            return False, msg, None
 
     def unsharedCollection(self, unshared_collection):
         if unshared_collection in self.sharedCollectionsWithMe:
@@ -160,47 +189,79 @@ class User:
 
     def setTagFilterToView(self, view, tag_list, conj=False):
         if view in self.views or view in self.sharedViewsWithMe:
-            view.setTagFilter(tag_list, conj)
+            old_tags = view.tag_list
+            old_filtered_photos_ids = view.filtered_photos_ids
+            new_tags = tag_list
+            new_filtered_photos_ids = view.setTagFilter(tag_list, conj)
+            msg = f"Tag filter of view is changed from {old_tags} to {new_tags}\n " \
+                  f"Photos ids list is changed from {old_filtered_photos_ids} to {new_filtered_photos_ids}"
+            return True, msg, new_filtered_photos_ids
         else:
-            print("You don't have the access to make changes on this view")
+            msg = "You don't have the access to make changes on this view"
+            return False, msg, None
+
+    def removeTagFilterFromView(self, view):
+        if view in self.views or view in self.sharedViewsWithMe:
+            old_tags = view.tag_list
+            old_filtered_photos_ids = view.filtered_photos_ids
+            new_filtered_photos_ids = view.removeTagFilter()
+            msg = f"Tag filter{old_tags} of view is removed.\n " \
+                  f"Photos ids list is changed from {old_filtered_photos_ids} to {new_filtered_photos_ids}"
+            return True, msg, new_filtered_photos_ids
+        else:
+            msg = "You don't have the access to make changes on this view"
+            return False, msg, None
+
 
     def setLocationRectToView(self, view, rectangle):
-        print("rectangleeee" ,rectangle)
         if view in self.views or view in self.sharedViewsWithMe:
-            view.setLocationRect(rectangle)
+            old_rec = view.location_rect
+            old_filtered_photos_ids = view.filtered_photos_ids
+            new_rec = rectangle
+            new_filtered_photos_ids = view.setLocationRect(rectangle)
+            msg = f"Location rectangle of view is changed from {old_rec} to {new_rec}\n " \
+                  f"Photos ids list is changed from {old_filtered_photos_ids} to {new_filtered_photos_ids}"
+            return True, msg, new_filtered_photos_ids
+
         else:
-            print("You don't have the access to make changes on this view")
+            msg = "You don't have the access to make changes on this view"
+            return False, msg, None
+
+    def removeLocRecFromView(self, view):
+        if view in self.views or view in self.sharedViewsWithMe:
+            old_rec = view.location_rect
+            old_filtered_photos_ids = view.filtered_photos_ids
+            new_filtered_photos_ids = view.removeLocationRect()
+            msg = f"Location filter{old_rec} of view is removed.\n " \
+                  f"Photos ids list is changed from {old_filtered_photos_ids} to {new_filtered_photos_ids}"
+            return True, msg, new_filtered_photos_ids
+        else:
+            msg = "You don't have the access to make changes on this view"
+            return False, msg, None
 
     def setTimeIntervalToView(self, view, start, end):
         if view in self.views or view in self.sharedViewsWithMe:
-            view.setTimeInterval(start, end)
+            old_time = view.time_interval
+            old_filtered_photos_ids = view.filtered_photos_ids
+            new_filtered_photos_ids = view.setTimeInterval(start, end)
+            new_time = (start, end)
+            msg = f"Time interval of view is changed from {old_time} to {new_time}\n " \
+                  f"Photos ids list is changed from {old_filtered_photos_ids} to {new_filtered_photos_ids}"
+            return True, msg, new_filtered_photos_ids
         else:
-            print("You don't have the access to make changes on this view")
+            msg = "You don't have the access to make changes on this view"
+            return False, msg, None
+
+    def removeTimeIntervalFromView(self, view):
+        if view in self.views or view in self.sharedViewsWithMe:
+            old_time = view.time_interval
+            old_filtered_photos_ids = view.filtered_photos_ids
+            new_filtered_photos_ids = view.removeTimeInterval()
+            msg = f"Time interval {old_time} of view is removed.\n " \
+                  f"Photos ids list is changed from {old_filtered_photos_ids} to {new_filtered_photos_ids}"
+            return True, msg, new_filtered_photos_ids
+        else:
+            msg = "You don't have the access to make changes on this view"
+            return False, msg, None
 
 
-
-
-
-
-# myph = Photo('/Users/ipekcaglayan/Downloads/canon.jpg')
-# myph.addTag('yaz')
-# myph.addTag('tatil')
-#
-# user1 = User("ipek")
-# user1_collection = user1.createCollection("Ipek's Collection")
-# user2 = User("Simge")
-# user3 = User("Bugris")
-# user4 = User("Ege")
-# user1.shareCollection(user1_collection, user2)
-# user1.shareCollection(user1_collection, user3)
-# user2.shareCollection(user1_collection, user4)
-# user2.addPhotoToCollection(user1_collection, myph)
-# myph1 = Photo('/Users/ipekcaglayan/Downloads/canon.jpg')
-# print(user1_collection)
-# user4.removePhotoFromCollection(user1_collection, myph)
-# print(user1_collection)
-# user2.removePhotoFromCollection(user1_collection, myph)
-# print(user1_collection)
-# user3.addPhotoToCollection(user1_collection, myph1)
-# user2.fetchPhotoFromCollection(user1_collection, 1)
-# user4.fetchPhotoFromCollection(user1_collection, 1)

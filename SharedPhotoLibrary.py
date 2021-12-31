@@ -9,7 +9,7 @@ class Photo:
     # and, counter is incremented by 1.
 
     counter = 0
-
+    photos_dict = {}
     def __init__(self, path, encoded_image):
 
         self.tags = set()
@@ -27,7 +27,7 @@ class Photo:
 
         self.encoded_image = encoded_image
 
-        self.location = "Not specified."
+        self.location = None
         # get gps info of the photo from metadata. latitude and longtitude is assigned None if gps info does not exist
         latitude = img.get('gps_latitude')
         longitude = img.get('gps_longitude')
@@ -36,7 +36,7 @@ class Photo:
         if longitude and latitude:
             self.location = (longitude, latitude)
 
-        self.datetime = "Not specified."
+        self.datetime = None
         date = img.get('datetime')
         # if datetime info exists, set datetime attribute
 
@@ -48,6 +48,7 @@ class Photo:
 
             self.datetime = datetime.datetime(*(yymmdd+saat))
 
+        Photo.photos_dict[self.id] = self
         photo.close()
 
     def __str__(self):
@@ -69,7 +70,7 @@ class Photo:
         # change metadata of the actual photo file in phase2
 
     def removeLocation(self):
-        self.location = "Location removed."
+        self.location = None
         # change metadata of the actual photo file in phase2
 
     def setDateTime(self, date):
@@ -89,7 +90,10 @@ class Collection:
         self.photos = {}  # photos are kept in dictionary object for more efficient fetch operation
         self.views = set()
         self.owner = user
+        self.shared_users = set()
+        self.collection_photos = set()
         Collection.collections_dict[self.id] = self
+
 
     def __str__(self):
         return f'Collection({self.name},{self.photos}, views: {self.views})'
@@ -98,18 +102,24 @@ class Collection:
 
     def addPhoto(self, photo):
         self.photos[photo.id] = photo
+        self.collection_photos.add(photo.id)
 
         # for all views attached to this collection, update the views since they might add the newly added photo
         for v in self.views:
             v.update()
 
+        return self.collection_photos
+
     def removePhoto(self, photo):
         if photo.id in self.photos:  # if photo in collection, remove
             del self.photos[photo.id]
+            self.collection_photos.remove(photo.id)
 
         # for all views attached to this collection, update the views since they might contain the removed photo
         for v in self.views:
             v.update()
+
+        return self.collection_photos
 
     def fetchPhoto(self, ph_id):
         photo = self.photos[ph_id]
@@ -120,31 +130,42 @@ class Collection:
     def addView(self, view):
         self.views.add(view)
         view.attachedToCollection(self)
-        view.update()
+        return view.update()
 
     def share(self, user):
         user.sharedCollection(self)
+        self.shared_users.add(user.id)
+        return self.shared_users
 
     def unshare(self, user):
         user.unsharedCollection(self)
+        if user.id in self.shared_users:
+            self.shared_users.remove(user.id)
+        return self.shared_users
 
 
 class View:
 
     counter = 0
+    views_dict = {}
 
     def __init__(self, name):
         self.id = View.counter
         self.name = name
         View.counter += 1
-        self.tag_list = []
-        self.filtered_photos_ids = []
+        self.tag_list = set()
+        self.filtered_photos_ids = set()
         self.conjunctive = False
-        self.location_rect = ()  # will be in the form (start_longitude tuple(3), end_longitude, start_latitude, end_latitude)
-        self.time_interval = ()
+        self.location_rect = None
+        self.shared_users = set()
+        # will be in the form (start_longitude tuple(3), end_longitude, start_latitude, end_latitude)
+        # self.location_rect = ()
+        # self.time_interval = ()
+        self.time_interval = None
         self.collection = None
         self.login_required = True  # This attribute will be set to False when view is publicly shared to users
         # that are not logged-in as well
+        View.views_dict[self.id] = self
 
     def __str__(self):
         return f"View({self.name}, {self.location_rect}, {self.time_interval},{self.tag_list})"
@@ -152,7 +173,7 @@ class View:
     __repr__ = __str__
 
     def filterByView(self):
-        self.filtered_photos_ids = []
+        self.filtered_photos_ids = set()
 
         if self.collection:
             for key, ph in self.collection.photos.items():
@@ -193,21 +214,34 @@ class View:
                             if not tag_found:
                                 flag = 0
                 if flag == 1:
-                    self.filtered_photos_ids.append(ph.id)
+                    self.filtered_photos_ids.add(ph.id)
+
+        return self.filtered_photos_ids
 
     def setTagFilter(self, tag_list, conj=False):
         self.tag_list = tag_list
         self.conjunctive = conj
-        self.update()
+        return self.update()
+
+    def removeTagFilter(self):
+        self.tag_list = set()
+        return self.update()
 
     def setLocationRect(self, rectangle):
         self.location_rect = rectangle
-        self.update()
+        return self.update()
+
+    def removeLocationRect(self):
+        self.location_rect = None
+        return self.update()
 
     def setTimeInterval(self, start, end):
         self.time_interval = (start, end)
-        self.update()
+        return self.update()
 
+    def removeTimeInterval(self):
+        self.time_interval = None
+        return self.update()
 
     def getTagFilter(self):
         return self.tag_list
@@ -223,24 +257,29 @@ class View:
             self.login_required = False
         else:
             user.sharedView(self)
+            self.shared_users.add(user.id)
+        return self.login_required, self.shared_users
 
     def unshare(self, user):
         user.unsharedView(self)
+        if user.id in self.shared_users:
+            self.shared_users.remove(user.id)
+        return self.shared_users
 
     # when the view is attached to the collection or whenever the state of the collection changes
     # (photos are added/deleted), photos in the view updated
     def update(self):
         print(f"View: {self.name} updated.")
-        self.filterByView()
+        return self.filterByView()
 
-        return
+
 
     def attachedToCollection(self, attached_to):
         self.collection = attached_to
         self.filtered_photos_ids = attached_to.photos.keys()
 
     def photoList(self):
-        return self.filtered_photos_ids
+        return list(self.filtered_photos_ids)
 
     def fetchPhoto(self, ph_id):
         if ph_id in self.filtered_photos_ids:
