@@ -106,6 +106,7 @@ class User:
         my_view = View(name)
         my_view.owner = self
         self.views.add(my_view)
+        my_view.shared_users.add(self.id)
         # self.db.insert("Views", ('view_id', 'view_name', 'location_filter', 'time_filter_start', 'time_filter_end',
         #                          'col_id', 'owner_id'), my_view.id, name, "", "", "", -1, self.id)
 
@@ -162,7 +163,7 @@ class User:
 
     @isCollectionSharedWithUser
     def fetchPhotoFromCollection(self, collection, ph_id):
-        collection.fetchPhoto(ph_id)
+        return collection.fetchPhoto(ph_id)
 
     @isCollectionSharedWithUser
     def addViewToCollection(self, collection, view):

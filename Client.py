@@ -3,10 +3,12 @@ from threading import Thread
 import json
 from json import JSONDecodeError
 import base64
+import math
 
 
 class Client:
     port = 2022
+    notification_port = 2028
     address = '127.0.0.1'
 
     def __init__(self):
@@ -14,6 +16,25 @@ class Client:
         self.added_photos_ids = list()
         self.created_collections = list()
         self.created_views = list()
+        self.server_closed = False
+
+    def notification(self, user_id):
+
+        notification_socket = socket(AF_INET, SOCK_STREAM)
+        notification_socket.connect((self.address, self.notification_port))
+        notification_socket.send(str.encode(str(user_id)))
+        notification_msg = notification_socket.recv(1024).decode('utf8')
+        while True:
+            if notification_msg == "":
+                print('Server closed')
+                self.server_closed = True
+                return
+
+            if notification_msg == "exit":
+                return
+            print(f'\n notification received by {user_id}: {notification_msg} \nRequest:')
+            notification_msg = notification_socket.recv(1024).decode('utf8')
+
 
     def is_user_logged_in(self):
         if self.logged_in_user_id < 0:
@@ -26,6 +47,8 @@ class Client:
 
         while True:
             is_json = False
+            if self.server_closed:
+                return
             request = input('\nRequest: ')
             try:
                 request = json.loads(request)
@@ -61,6 +84,8 @@ class Client:
                 if user_id >= 0:  # Server returned id of logged in user which means user login is successful.
                     self.logged_in_user_id = user_id
                     print(f"User({request['username']}) is logged in.")
+                    notification_thread = Thread(target=self.notification, args=(user_id,))  # msh[0] is user_id
+                    notification_thread.start()
                 else:  # that means server returned -1 as user_id since given username or pswd is incorrect.
                     print("You have entered the wrong username or password.")
 
@@ -70,18 +95,43 @@ class Client:
                     if not is_json:
                         params = request.split(" ")
                         path = params[1]
-                        request = {'command': '2', 'path': path}
-                    # path = request['path']
-                    # with open(path, 'rb') as img_file:
-                    #     image_read = img_file.read()
-                    #     image_64_encode = base64.encodebytes(image_read)
+                        request = {'command': '2.1', 'path': path}
+
+                    with open(path, 'rb') as img_file:
+                        image_read = img_file.read()
+                        image_64_encode = base64.b64encode(image_read)
+
+                    image_size = len(image_64_encode)
+                    i = 0
+
+                    # with this number server will now when receiving image will end
+                    image_part_number = math.ceil(image_size/1024)
+
+                    # command 2.1 says that user is uploading a photo and next request will include
+                    # a part of encoded message
+                    request['image_part_number'] =image_part_number
 
                     request_socket.send(str.encode(json.dumps(request)))
-                    # request_socket.send(str.encode("BUGRISKOOOOOO"))
-                    # print(image_64_encode)
-                    # print('---------------------------------------------------')
-                    # print(image_64_encode+b'==')
-                    # request_socket.send(image_64_encode+b'==')
+
+                    path = request['path']
+
+                    while i < image_size:
+                        image_part = image_64_encode[i:i+1024]
+                        if len(image_part) % 4:
+                            m = len(image_part) % 4
+                            image_part += b'='*m
+                        request_socket.send(image_part)
+                        i += 1024
+
+                    image_sent = request_socket.recv(1024).decode('utf8')
+
+                    # encoded image is sent now it is time to notify server that image is done
+                    # 2.2 will notify server and encoded image, assembled by parts of encoded image,
+                    # will be uploaded to library in the server side
+
+                    if image_sent:
+                        request = {'command': '2.3'}
+                        request_socket.send(str.encode(json.dumps(request)))
 
                     ph_id = int(request_socket.recv(1024).decode('utf8'))
                     print(f"Photo(id={ph_id}) is uploaded.")
@@ -311,6 +361,7 @@ class Client:
                     request_socket.send(str.encode(json.dumps(request)))
                     msg = request_socket.recv(1024).decode('utf8')
                     print(msg)
+
             elif request_type == "REMOVE_LOC_FILTER_FROM_VIEW" or request_type == "21":
                 user_id = self.is_user_logged_in()
                 if user_id >= 0:
@@ -355,26 +406,22 @@ class Client:
                     msg = request_socket.recv(1024).decode('utf8')
                     print(json.loads(msg))
 
+            elif request_type == "FETCH" or request_type == "26":
+                user_id = self.is_user_logged_in()
+                if user_id >= 0:
+                    if not is_json:
+                        params = request.split(" ")
+                        col_id = params[1]
+                        ph_id = params[2]
+                        request = {'command': '26', 'col_id': col_id, 'ph_id': ph_id}
+                    request_socket.send(str.encode(json.dumps(request)))
+                    msg = request_socket.recv(1024).decode('utf8')
+                    print(msg)
 
-
-
-            # elif request_type == "SHARE_COLLECTION" or request_type == "10":
-            #     user_id = self.is_user_logged_in()
-            #     if user_id >= 0:
-            #         if not is_json:
-            #             params = request.split(" ")
-            #             view_name = params[1]
-            #             request = {'command': '9', 'view_name': view_name}
-            #         request_socket.send(str.encode(json.dumps(request)))
-            #         view_id = int(request_socket.recv(1024).decode('utf8'))
-            #         self.created_views.append(view_id)
-            #         print(f"View(name={request['view_name']}) created successfully.")
-
-
-            if request_type == "LOGOUT":
-                self.logged_in_user_id = -1
-
-            if request == 'exit':
+            elif request == 'exit':
+                user_id = self.is_user_logged_in()
+                request = {'command': '25'}
+                request_socket.send(str.encode(json.dumps(request)))
                 print('Bye')
                 return
 

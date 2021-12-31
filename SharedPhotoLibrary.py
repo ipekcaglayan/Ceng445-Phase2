@@ -10,46 +10,86 @@ class Photo:
 
     counter = 0
     photos_dict = {}
+    # def __init__(self, path, encoded_image):
+    #
+    #     self.tags = set()
+    #     self.id = Photo.counter
+    #     Photo.counter += 1
+    #     # open the photo in given path
+    #     photo = PIL.Image.open(path)
+    #     # set thumbnail of photo in given max size
+    #     MAX_SIZE = (100, 100)  # max thumbnail size
+    #     self.thumbnail = photo.thumbnail(MAX_SIZE)
+    #
+    #     # open photo in binary format to read metadata
+    #     with open(path, 'rb') as img_file:
+    #         img = Image(img_file)
+    #
+    #     self.encoded_image = encoded_image
+    #
+    #     self.location = None
+    #     # get gps info of the photo from metadata. latitude and longtitude is assigned None if gps info does not exist
+    #     latitude = img.get('gps_latitude')
+    #     longitude = img.get('gps_longitude')
+    #
+    #     # if gps info exists, set location attribute of object
+    #     if longitude and latitude:
+    #         self.location = (longitude, latitude)
+    #
+    #     self.datetime = None
+    #     date = img.get('datetime')
+    #     # if datetime info exists, set datetime attribute
+    #
+    #     if date:
+    #         dates = date.split(" ")
+    #
+    #         yymmdd = [int(x) for x in dates[0].split(":")]
+    #         saat = [int(x) for x in dates[1].split(":")]
+    #
+    #         self.datetime = datetime.datetime(*(yymmdd+saat))
+    #
+    #     Photo.photos_dict[self.id] = self
+    #     photo.close()
+
     def __init__(self, path, encoded_image):
 
         self.tags = set()
         self.id = Photo.counter
         Photo.counter += 1
-        # open the photo in given path
-        photo = PIL.Image.open(path)
-        # set thumbnail of photo in given max size
-        MAX_SIZE = (100, 100)  # max thumbnail size
-        self.thumbnail = photo.thumbnail(MAX_SIZE)
-
-        # open photo in binary format to read metadata
-        with open(path, 'rb') as img_file:
-            img = Image(img_file)
-
-        self.encoded_image = encoded_image
 
         self.location = None
-        # get gps info of the photo from metadata. latitude and longtitude is assigned None if gps info does not exist
-        latitude = img.get('gps_latitude')
-        longitude = img.get('gps_longitude')
-
-        # if gps info exists, set location attribute of object
-        if longitude and latitude:
-            self.location = (longitude, latitude)
-
         self.datetime = None
-        date = img.get('datetime')
-        # if datetime info exists, set datetime attribute
+        self.encoded_image = encoded_image
+        self.path = path
 
-        if date:
-            dates = date.split(" ")
+        # use encoded img to read metadata
 
-            yymmdd = [int(x) for x in dates[0].split(":")]
-            saat = [int(x) for x in dates[1].split(":")]
+        decoded_image = base64.b64decode(encoded_image)
+        img = Image(decoded_image)
 
-            self.datetime = datetime.datetime(*(yymmdd+saat))
+        # if img has exif attr we can get metadata of photo
+        if img.has_exif:
+            # get gps info of the photo from metadata.
+            # latitude and longtitude is assigned None if gps info does not exist
+            # if gps info exists, set location attribute of object
+            latitude = img.get('gps_latitude')
+            longitude = img.get('gps_longitude')
+            if longitude and latitude:
+                self.location = (longitude, latitude)
+
+            date = img.get('datetime')
+            # if datetime info exists, set datetime attribute
+
+            if date:
+                dates = date.split(" ")
+
+                yymmdd = [int(x) for x in dates[0].split(":")]
+                saat = [int(x) for x in dates[1].split(":")]
+
+                self.datetime = datetime.datetime(*(yymmdd+saat))
 
         Photo.photos_dict[self.id] = self
-        photo.close()
+        # photo.close()
 
     def __str__(self):
         return f"Photo({self.id}, {self.location},{self.datetime}, {self.tags})"
@@ -138,8 +178,9 @@ class Collection:
     def fetchPhoto(self, ph_id):
         photo = self.photos[ph_id]
         tags = ", ".join(photo.tags)
-        print(f"tags: {tags} \nlocation: {photo.location} \ndatetime : {photo.datetime}")
-        return photo
+        img = PIL.Image.open(photo.path)
+        img.show()
+        return True, f"tags: {tags} \nlocation: {photo.location} \ndatetime : {photo.datetime}", photo.encoded_image
 
     def addView(self, view):
         self.views.add(view)

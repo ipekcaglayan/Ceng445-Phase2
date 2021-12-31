@@ -17,6 +17,8 @@ from SharedPhotoLibrary import *
 class Server:
     port = 2022
     mutex = Lock()
+    notification_port = 2028
+    logged_in_clients = {}
 
     def __init__(self):
         self.connected_clients = 0
@@ -130,7 +132,11 @@ class Server:
             filtered_photos_ids = eval(view_tuple[8])
             tag_list = eval(view_tuple[9])
             shared_users = eval(view_tuple[10])
-            conj = eval(view_tuple[11])
+            conj = view_tuple[11]
+            if conj == 1 or conj == '1' or conj == True or conj == 'True':
+                conj = True
+            else:
+                conj = False
 
             view = View(view_name)
             view.id = view_id
@@ -178,13 +184,46 @@ class Server:
         View.views_dict = views_dict
         View.counter = col_counter + 1
 
+    def photo_update_notification_list(self, ph_id):
+        users_list = set()
+        for col_id, col in Collection.collections_dict.items():
+            if ph_id in col.photos:
+                users_list.add(col.owner.id)
+                users_list = users_list.union(col.shared_users)
+        for view_id, view in View.views_dict.items():
+            if ph_id in view.filtered_photos_ids:
+                users_list = users_list.union(view.shared_users)
+
+        return users_list
+
+    def collection_update_notification_list(self, col_id):
+        col = Collection.collections_dict[col_id]
+        users_list = col.shared_users
+        users_list.add(col.owner.id)
+        for view_id, view in View.views_dict.items():
+            if col == view.collection:
+                users_list = users_list.union(view.shared_users)
+
+        return users_list
+
+    def view_update_notification_list(self, view_id):
+        view = View.views_dict[view_id]
+        users_list = view.shared_users
+        for col_id, col in Collection.collections_dict.items():
+            if view in col.views:
+                users_list = users_list.union(col.shared_users)
+
+        return users_list
+
+
+
     def user_does_request(self, request, **kwargs):
         user_id = int(kwargs['user_id'])
         user = User.users_dict[user_id]
 
         if request == 2:  # Upload Photo
             # photo_data = user.uploadPhoto(kwargs['path'], kwargs['encoded_img'])
-            photo_data = user.uploadPhoto(kwargs['path'], "")
+            photo_data = user.uploadPhoto(kwargs['path'], kwargs['encoded_img'])
             print(photo_data)
             self.db.insert("Photos", ('ph_id', 'tags', 'location', 'datetime', 'path', 'encoded_img', 'user_id'),
                            *photo_data)
@@ -197,7 +236,10 @@ class Server:
             success, new_tags = user.addTagToPhoto(ph_id, tag)
             if success:
                 self.db.update("Photos", "tags", "ph_id", *[str(new_tags), ph_id])
-                return f"Tag: {tag} is added to Photo(id={ph_id})"
+                msg = f"Tag: {tag} is added to Photo(id={ph_id})"
+                notification_list = self.photo_update_notification_list(ph_id)
+                self.send_notification(msg, notification_list)
+                return msg
             return new_tags
 
         elif request == 4:  # Remove Tag from Photo
@@ -210,6 +252,8 @@ class Server:
                 if new_tags:
                     new_tags = str(new_tags)
                 self.db.update("Photos", "tags", "ph_id", *[new_tags, ph_id])
+                notification_list = self.photo_update_notification_list(ph_id)
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 5:  # Set Loc of Photo
@@ -220,6 +264,8 @@ class Server:
             loc = (long, latt)
             if success:
                 self.db.update("Photos", "location", "ph_id", *[str(loc), ph_id])
+                notification_list = self.photo_update_notification_list(ph_id)
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 6:  # Remove Loc from Photo
@@ -227,6 +273,8 @@ class Server:
             success, msg = user.removeLocationFromPhoto(ph_id)
             if success:
                 self.db.update("Photos", "location", "ph_id", *[None, ph_id])
+                notification_list = self.photo_update_notification_list(ph_id)
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 7:  # Set Datetime of Photo
@@ -241,6 +289,8 @@ class Server:
             if success:
                 msg = f'Datetime of Photo(id={ph_id}) is set to {yymmdd} {saat}'
                 self.db.update("Photos", "datetime", "ph_id", *[" ".join([yymmdd, saat]), ph_id])
+                notification_list = self.photo_update_notification_list(ph_id)
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 8:  # Create Collection
@@ -282,6 +332,8 @@ class Server:
                 self.db.update("Collections", "collection_photos", "col_id", *[str(collection_photos), int(kwargs['col_id'])])
                 for v_tuple in view_changes:
                     self.db.update("Views", "filtered_photos_ids", "view_id", *[str(v_tuple[0]), int(v_tuple[1])])
+                notification_list = self.collection_update_notification_list(int(kwargs['col_id']))
+                self.send_notification(msg, notification_list)
 
             return msg
 
@@ -293,6 +345,8 @@ class Server:
                 self.db.update("Collections", "collection_photos", "col_id", *[str(collection_photos), int(kwargs['col_id'])])
                 for v_tuple in view_changes:
                     self.db.update("Views", "filtered_photos_ids", "view_id", *[str(v_tuple[0]), int(v_tuple[1])])
+                notification_list = self.collection_update_notification_list(int(kwargs['col_id']))
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 14:  # Set tag filter to view
@@ -304,6 +358,8 @@ class Server:
                 self.db.update("Views", "filtered_photos_ids", "view_id", *[str(new_photos_ids), int(kwargs['view_id'])])
                 self.db.update("Views", "tag_list", "view_id", *[str(tag_list), int(kwargs['view_id'])])
                 self.db.update("Views", "conjunctive", "view_id", *[conj, int(kwargs['view_id'])])
+                notification_list = self.view_update_notification_list(int(kwargs['view_id']))
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 15:  # Set loc rec to view
@@ -313,6 +369,8 @@ class Server:
             if success:
                 self.db.update("Views", "filtered_photos_ids", "view_id", *[str(new_photos_ids), int(kwargs['view_id'])])
                 self.db.update("Views", "location_filter", "view_id", *[str(rec), int(kwargs['view_id'])])
+                notification_list = self.view_update_notification_list(int(kwargs['view_id']))
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 16:  # Set time interval to view
@@ -336,6 +394,8 @@ class Server:
                 self.db.update("Views", "filtered_photos_ids", "view_id", *[str(new_photos_ids), int(kwargs['view_id'])])
                 self.db.update("Views", "time_filter_start", "view_id", *[str(start_datetime), int(kwargs['view_id'])])
                 self.db.update("Views", "time_filter_end", "view_id", *[str(end_datetime), int(kwargs['view_id'])])
+                notification_list = self.view_update_notification_list(int(kwargs['view_id']))
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 17:  # Share View
@@ -362,6 +422,10 @@ class Server:
             if success:
                 self.db.update("Views", "filtered_photos_ids", "view_id", *[str(filtered_photos_ids), int(kwargs['view_id'])])
                 self.db.update("Views", "col_id", "view_id", *[int(kwargs['col_id']), int(kwargs['view_id'])])
+                view_list = self.view_update_notification_list(int(kwargs['view_id']))
+                col_list = self.collection_update_notification_list(int(kwargs['col_id']))
+                notification_list = set.union(view_list, col_list)
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 20:  # Remove tag filter from view
@@ -370,6 +434,8 @@ class Server:
             if success:
                 self.db.update("Views", "filtered_photos_ids", "view_id", *[str(new_photos_ids), int(kwargs['view_id'])])
                 self.db.update("Views", "tag_list", "view_id", *[str(set()), int(kwargs['view_id'])])
+                notification_list = self.view_update_notification_list(int(kwargs['view_id']))
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 21:  # Remove loc filter from view
@@ -378,6 +444,8 @@ class Server:
             if success:
                 self.db.update("Views", "filtered_photos_ids", "view_id", *[str(new_photos_ids), int(kwargs['view_id'])])
                 self.db.update("Views", "location_filter", "view_id", *[None, int(kwargs['view_id'])])
+                notification_list = self.view_update_notification_list(int(kwargs['view_id']))
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 22:  # Remove time filter from view
@@ -388,12 +456,14 @@ class Server:
                 self.db.update("Views", "filtered_photos_ids", "view_id", *[str(new_photos_ids), int(kwargs['view_id'])])
                 self.db.update("Views", "time_filter_start", "view_id", *[None, int(kwargs['view_id'])])
                 self.db.update("Views", "time_filter_end", "view_id", *[None, int(kwargs['view_id'])])
+                notification_list = self.view_update_notification_list(int(kwargs['view_id']))
+                self.send_notification(msg, notification_list)
             return msg
 
         elif request == 23:  # Delete view
             view = View.views_dict[int(kwargs['view_id'])]
-            print(view)
-            print(view.collection)
+            notification_list = self.view_update_notification_list(int(kwargs['view_id']))
+
             col = view.collection
             col.views.remove(view)
 
@@ -403,7 +473,9 @@ class Server:
             view.owner.views.remove(view)
 
             self.db.delete("Views", "view_id", *[int(kwargs['view_id'])])
-            return f"View(id={kwargs['view_id']} is deleted.)"
+            msg = f"View(id={kwargs['view_id']} is deleted.)"
+            self.send_notification(msg, notification_list)
+            return msg
 
         elif request == 24:
             object_name = kwargs['object_name']
@@ -414,21 +486,29 @@ class Server:
 
             return json.dumps(response)
 
+        elif request == 26:
+            col_id = int(kwargs['col_id'])
+            ph_id = int(kwargs['ph_id'])
+            col = Collection.collections_dict[col_id]
+            success, msg, encoded_img = user.fetchPhotoFromCollection(col, ph_id)
+            return msg
+
     def request_handler(self, request_handler_socket):
         client_user_id = -1
-        received_msg = request_handler_socket.recv(1024)
-
+        encoded_img = b''
+        path = ""
+        image_part_number = 0
         while True:
+            received_msg = request_handler_socket.recv(1024)
             decode8 = received_msg.decode('utf8')
             try:
                 request = json.loads(decode8)
             except JSONDecodeError:
                 # that means received msg is not in json form which happens only when client send image
                 # client send image in reqq type 2 = UPLOAD_PHOTO
-                # decoded_img = base64.decodebytes(received_msg)
-                # request = {'command': '2', 'decoded_img': decoded_img}
-
-                pass
+                # client is sending parts of encoded image
+                encoded_img += received_msg
+                request = {'command': '2.2'}
 
             request_type = request['command']
             request['user_id'] = client_user_id
@@ -460,13 +540,56 @@ class Server:
 
                     request_handler_socket.send(str.encode(user_id))
 
+            elif request_type == '2.1':
+                with Server.mutex:
+                    encoded_img = b''
+                    path = request['path']
+                    image_part_number = request['image_part_number']
+
+            elif request_type == '2.2':
+                image_part_number -= 1
+                # received_msg = request_handler_socket.recv(1024)
+                if image_part_number == 0:
+                    # sent receiving image is done message to client side
+                    request_handler_socket.send(str.encode("DONE"))
+
+                continue
+
+            elif request_type == '2.3':
+                with Server.mutex:
+                    request['encoded_img'] = encoded_img
+                    request['path'] = path
+                    message = self.user_does_request(2, **request)
+                    request_handler_socket.send(str.encode(message))
+
+            elif request_type == '25':  # Client closing
+                with Server.mutex:
+                    user_id = int(request['user_id'])
+                    self.send_notification("exit", [user_id])
+                    if user_id in self.logged_in_clients:
+                        del self.logged_in_clients[user_id]
+                        return
+
             else:
                 with Server.mutex:
                     req_type = int(request_type)
                     message = self.user_does_request(req_type, **request)
                     request_handler_socket.send(str.encode(message))
 
-            received_msg = request_handler_socket.recv(1024)
+
+    def send_notification(self, notification_msg, user_ids):
+        for user_id in user_ids:
+            # Check if user needed to be notified is logged in.
+            if user_id in self.logged_in_clients:
+                try:
+                    self.logged_in_clients[user_id].send(str.encode(notification_msg))
+                except:
+                    continue
+
+    def notification_handler(self, notification_handler_socket):
+        user_id = int(notification_handler_socket.recv(1024).decode('utf8'))
+        print(f'A Client is logged in to be notified with user id : {user_id}')
+        self.logged_in_clients[user_id] = notification_handler_socket
 
     def start_server(self):
         try:
@@ -481,12 +604,29 @@ class Server:
             self.connected_clients += 1
             req_handler = Thread(target=self.request_handler, args=(conn,))
             req_handler.start()
-            print("New client -> thread : ", req_handler.ident)
+            print("New client thread -> ", req_handler.ident)
+
+    def start_notification(self):
+        try:
+            notification_handler_socket = socket(AF_INET, SOCK_STREAM)
+            notification_handler_socket.bind(('', self.notification_port))
+            notification_handler_socket.listen()
+        except Exception as e:
+            print(f"Unable to start to notification. An error occurred:{e}")
+            return
+
+        while True:
+            conn, peer = notification_handler_socket.accept()
+            not_handler = Thread(target=self.notification_handler, args=(conn,))
+            not_handler.start()
+            print("Notification thread -> ", not_handler.ident)
 
     def start(self):
 
         start_server = Thread(target=self.start_server)
         start_server.start()
+        start_notification = Thread(target=self.start_notification)
+        start_notification.start()
 
 
 if __name__ == "__main__":
